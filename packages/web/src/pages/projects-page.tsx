@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -6,13 +6,30 @@ import {
   ProjectGrid,
   ProjectFab,
   PublishModal,
-  type Project,
   type ProjectStatus,
+  type RecencyFilter,
   type PublishFormData
 } from "@/components/project";
 import { createApiClient, type PublishProjectInput } from "@/lib/api";
 
 const api = createApiClient();
+
+// Debounce hook
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+
+  return debouncedValue;
+}
 
 // Helper function to convert frontend category to API category
 function convertCategory(category: string): PublishProjectInput["category"] {
@@ -24,10 +41,19 @@ export function ProjectsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  // Fetch projects from API
+  // Search state
+  const [searchInput, setSearchInput] = useState("");
+  const debouncedSearch = useDebounce(searchInput, 500);
+
+  // Filter state
+  const [statusFilter, setStatusFilter] = useState<ProjectStatus | undefined>();
+  const [industryFilter, setIndustryFilter] = useState<string | undefined>();
+  const [recencyFilter, setRecencyFilter] = useState<RecencyFilter | undefined>();
+
+  // Fetch projects from API with search, status, and recency filters
   const { data, isLoading, error } = useQuery({
-    queryKey: ["projects"],
-    queryFn: () => api.listProjects()
+    queryKey: ["projects", debouncedSearch, statusFilter, recencyFilter],
+    queryFn: () => api.getProjects(debouncedSearch || undefined, statusFilter, recencyFilter)
   });
 
   // Publish mutation
@@ -43,17 +69,22 @@ export function ProjectsPage() {
         includeSourceFiles: data.includeSourceFiles
       }),
     onSuccess: () => {
-      // Invalidate projects query to refresh the list
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+    }
+  });
+
+  // Delete mutation
+  const deleteMutation = useMutation({
+    mutationFn: (projectId: string) => api.deleteProject(projectId),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
     }
   });
 
   const projects = data?.projects ?? [];
 
-  // Filter state
-  const [statusFilter, setStatusFilter] = useState<ProjectStatus | undefined>();
-  const [industryFilter, setIndustryFilter] = useState<string | undefined>();
-  const [recencyFilter, setRecencyFilter] = useState<string | undefined>();
+  // Delete confirmation state
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -68,17 +99,6 @@ export function ProjectsPage() {
     return projects.find((p) => p.id === publishingProjectId) ?? null;
   }, [publishingProjectId, projects]);
 
-  // Filter projects
-  const filteredProjects = useMemo(() => {
-    return projects.filter((project) => {
-      if (statusFilter && project.status !== statusFilter) {
-        return false;
-      }
-      // Industry and recency filters would be applied here with real data
-      return true;
-    });
-  }, [statusFilter, projects]);
-
   const handleSelect = (id: string, selected: boolean) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -92,23 +112,19 @@ export function ProjectsPage() {
   };
 
   const handleEdit = (id: string) => {
-    // Navigate to project editor
     navigate({ to: "/creative-studio", search: { projectId: id } });
   };
 
   const handlePreview = (id: string) => {
-    // Open preview modal or navigate to preview page
     console.log("Preview project:", id);
   };
 
   const handleMenuClick = (id: string) => {
-    // Open context menu
     console.log("Menu clicked for project:", id);
   };
 
   const handleNewProject = () => {
-    // Navigate to create new project
-    navigate({ to: "/creative-studio" });
+    navigate({ to: "/projects/new" });
   };
 
   const handleEditSelection = () => {
@@ -131,8 +147,39 @@ export function ProjectsPage() {
   };
 
   const handleDeleteSelection = () => {
-    console.log("Delete projects:", Array.from(selectedIds));
-    setSelectedIds(new Set());
+    if (selectedIds.size === 0) return;
+
+    if (window.confirm(`Are you sure you want to delete ${selectedIds.size} project(s)? This action cannot be undone.`)) {
+      Promise.all(Array.from(selectedIds).map(id => deleteMutation.mutateAsync(id)))
+        .then(() => {
+          setSelectedIds(new Set());
+        })
+        .catch((error) => {
+          console.error("Failed to delete projects:", error);
+        });
+    }
+  };
+
+  const handleDeleteProject = (id: string) => {
+    setDeleteConfirmId(id);
+  };
+
+  const confirmDelete = () => {
+    if (!deleteConfirmId) return;
+
+    deleteMutation.mutate(deleteConfirmId, {
+      onSuccess: () => {
+        setDeleteConfirmId(null);
+      },
+      onError: (error) => {
+        console.error("Failed to delete project:", error);
+        setDeleteConfirmId(null);
+      }
+    });
+  };
+
+  const cancelDelete = () => {
+    setDeleteConfirmId(null);
   };
 
   // Publish handlers
@@ -158,7 +205,6 @@ export function ProjectsPage() {
         },
         onError: (error) => {
           console.error("Failed to publish project:", error);
-          // TODO: Show error toast to user
         }
       }
     );
@@ -166,7 +212,6 @@ export function ProjectsPage() {
 
   const handleSaveDraft = useCallback((data: PublishFormData) => {
     console.log("Saving draft:", publishingProjectId, data);
-    // TODO: Call API to save draft
     setPublishModalOpen(false);
     setPublishingProjectId(null);
   }, [publishingProjectId]);
@@ -193,6 +238,7 @@ export function ProjectsPage() {
           onIndustryChange={setIndustryFilter}
           onRecencyChange={setRecencyFilter}
           hasSelection={selectedIds.size > 0}
+          selectionCount={selectedIds.size}
           onEditSelection={handleEditSelection}
           onPreviewSelection={handlePreviewSelection}
           onArchiveSelection={handleArchiveSelection}
@@ -201,35 +247,21 @@ export function ProjectsPage() {
       </div>
 
       {/* Project Grid */}
-      {isLoading ? (
+      {error ? (
         <div className="flex items-center justify-center py-12">
-          <div className="text-muted-foreground">Loading projects...</div>
-        </div>
-      ) : error ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="text-destructive">Failed to load projects. Please try again.</div>
-        </div>
-      ) : filteredProjects.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12">
-          <div className="text-muted-foreground mb-4">No projects yet</div>
-          <button
-            type="button"
-            onClick={handleNewProject}
-            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            <span className="material-symbols-outlined text-base">add</span>
-            Create your first project
-          </button>
+          <div className="text-red-500">Failed to load projects. Please try again.</div>
         </div>
       ) : (
         <ProjectGrid
-          projects={filteredProjects}
+          projects={projects}
           selectedIds={selectedIds}
           onSelect={handleSelect}
           onEdit={handleEdit}
           onPreview={handlePreview}
           onMenuClick={handleMenuClick}
           onPublish={handlePublishClick}
+          onDelete={handleDeleteProject}
+          isLoading={isLoading}
         />
       )}
 
@@ -244,6 +276,34 @@ export function ProjectsPage() {
         onPublish={handlePublishSubmit}
         onSaveDraft={handleSaveDraft}
       />
+
+      {/* Delete Confirmation Dialog */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="mx-4 w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+            <h3 className="mb-4 text-lg font-bold text-slate-900 dark:text-white">Delete Project?</h3>
+            <p className="mb-6 text-slate-500 dark:text-slate-400">
+              Are you sure you want to delete this project? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={cancelDelete}
+                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                className="rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
