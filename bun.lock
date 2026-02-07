@@ -1018,6 +1018,16 @@
 
     "@coinbase/wallet-sdk/clsx": ["clsx@1.2.1", "", {}, "sha512-EcR6r5a8bj6pu3ycsa/E/cKVGuTgZJZdsyUYHOksG/UHIiKfjxzRxYJpyVBwYaQeOvghal9fcc4PidlgzugAQg=="],
 
+    "@creative-store/api/@creative-store/db": ["@creative-store/db@file:packages/db", { "dependencies": { "@prisma/client": "^6.3.1" }, "devDependencies": { "prisma": "^6.3.1" } }],
+
+    "@creative-store/api/@creative-store/shared": ["@creative-store/shared@file:packages/shared", { "dependencies": { "zod": "^3.24.1" } }],
+
+    "@creative-store/web/@creative-store/shared": ["@creative-store/shared@file:packages/shared", { "dependencies": { "zod": "^3.24.1" } }],
+
+    "@creative-store/worker/@creative-store/db": ["@creative-store/db@file:packages/db", { "dependencies": { "@prisma/client": "^6.3.1" }, "devDependencies": { "prisma": "^6.3.1" } }],
+
+    "@creative-store/worker/@creative-store/shared": ["@creative-store/shared@file:packages/shared", { "dependencies": { "zod": "^3.24.1" } }],
+
     "@noble/curves/@noble/hashes": ["@noble/hashes@1.8.0", "", {}, "sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A=="],
 
     "@scure/bip32/@noble/hashes": ["@noble/hashes@1.8.0", "", {}, "sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A=="],
