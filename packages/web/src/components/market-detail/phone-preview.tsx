@@ -2,9 +2,12 @@ import type { MarketListing } from "./types"
 
 interface PhonePreviewProps {
   listing: MarketListing
+  zoom?: number
 }
 
-export function PhonePreview({ listing }: PhonePreviewProps) {
+export function PhonePreview({ listing, zoom = 100 }: PhonePreviewProps) {
+  const scale = zoom / 100
+
   return (
     <div
       className="flex-1 overflow-auto flex items-center justify-center p-12 relative"
@@ -16,8 +19,8 @@ export function PhonePreview({ listing }: PhonePreviewProps) {
     >
       {/* Phone Frame */}
       <div
-        className="relative shadow-[0_0_100px_rgba(0,0,0,0.3)] rounded-[48px] border-[14px] border-slate-900 bg-black overflow-hidden flex flex-col"
-        style={{ width: "400px", height: "820px" }}
+        className="relative shadow-[0_0_100px_rgba(0,0,0,0.3)] rounded-[48px] border-[14px] border-slate-900 bg-black overflow-hidden flex flex-col transition-transform duration-200 ease-out"
+        style={{ width: "400px", height: "820px", transform: `scale(${scale})` }}
       >
         {/* Notch */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-8 bg-slate-900 rounded-b-3xl z-30 flex items-center justify-center gap-2">

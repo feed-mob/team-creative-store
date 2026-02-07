@@ -1,6 +1,13 @@
 import { Link } from "@tanstack/react-router"
 
-export function PreviewToolbar() {
+interface PreviewToolbarProps {
+  zoom: number
+  onZoomIn: () => void
+  onZoomOut: () => void
+  onResetZoom: () => void
+}
+
+export function PreviewToolbar({ zoom, onZoomIn, onZoomOut, onResetZoom }: PreviewToolbarProps) {
   return (
     <div className="flex items-center justify-between gap-2 px-6 py-3 border-b border-border bg-card/50 backdrop-blur-md sticky top-0 z-10">
       <div className="flex items-center gap-1">
@@ -20,14 +27,18 @@ export function PreviewToolbar() {
         </button>
         <button
           type="button"
-          className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
-          title="Safety Zones"
+          onClick={onZoomOut}
+          disabled={zoom <= 25}
+          className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Zoom Out"
         >
-          <span className="material-symbols-outlined">shield</span>
+          <span className="material-symbols-outlined">zoom_out</span>
         </button>
         <button
           type="button"
-          className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
+          onClick={onZoomIn}
+          disabled={zoom >= 200}
+          className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           title="Zoom In"
         >
           <span className="material-symbols-outlined">zoom_in</span>
@@ -40,7 +51,14 @@ export function PreviewToolbar() {
           <span className="material-symbols-outlined">fullscreen</span>
         </button>
         <div className="w-px h-6 bg-border mx-2" />
-        <span className="text-sm font-medium text-muted-foreground">Zoom: 65%</span>
+        <button
+          type="button"
+          onClick={onResetZoom}
+          className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+          title="Reset Zoom"
+        >
+          Zoom: {zoom}%
+        </button>
       </div>
       <div className="flex items-center gap-4">
         <div className="flex -space-x-2">
