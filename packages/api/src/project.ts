@@ -40,7 +40,6 @@ type ProjectRecord = {
 
 type PublishRecordData = {
   creativeId: string;
-  versionId: string;
   creatorId: string;
   slug: string;
   title: string;
@@ -65,7 +64,7 @@ type PublishRecordResult = {
 type PrismaLike = {
   project: {
     findMany: (args: { where: { userId: string; name?: { contains: string; mode: "insensitive" }; status?: string; updatedAt?: { gte: Date } }; orderBy?: { updatedAt: "desc" } }) => Promise<ProjectRecord[]>;
-    findUnique: (args: { where: { id: string }; include?: { creatives?: { include?: { versions?: boolean } } } }) => Promise<(ProjectRecord & { userId: string; creatives?: Array<{ id: string; versions?: Array<{ id: string }> }> }) | null>;
+    findUnique: (args: { where: { id: string }; include?: { creatives?: boolean | { include?: { publishRecords?: boolean } } } }) => Promise<(ProjectRecord & { userId: string; creatives?: Array<{ id: string; url: string; publishRecords?: Array<{ id: string }> }> }) | null>;
     create: (args: { data: { name: string; userId: string; status?: string; imageUrl?: string } }) => Promise<ProjectRecord>;
     update: (args: { where: { id: string }; data: { name?: string; status?: string; imageUrl?: string } }) => Promise<ProjectRecord>;
     delete: (args: { where: { id: string } }) => Promise<ProjectRecord>;
@@ -74,8 +73,13 @@ type PrismaLike = {
     create: (args: { data: { projectId: string; intentText: string; briefJson: unknown; constraints: unknown } }) => Promise<unknown>;
     findMany: (args: { where: { projectId: string }; orderBy?: { createdAt: "desc" }; include?: { drafts?: boolean } }) => Promise<Array<{ id: string; projectId: string; intentText: string; briefJson: unknown; constraints: unknown; status: string; createdAt: Date; drafts?: Array<{ id: string; briefId: string; draftJson: unknown; createdAt: Date }> }>>;
   };
+  creative: {
+    upsert: (args: { where: { id: string }; create: { id: string; projectId: string; url: string }; update: { url: string } }) => Promise<{ id: string; url: string }>;
+    findFirst: (args: { where: { projectId: string } }) => Promise<{ id: string; url: string } | null>;
+  };
   publishRecord: {
     create: (args: { data: PublishRecordData }) => Promise<PublishRecordResult>;
+    updateMany: (args: { where: { creativeId: { in: string[] } }; data: { imageUrl: string } }) => Promise<{ count: number }>;
   };
 };
 
@@ -158,11 +162,7 @@ export function createProjectRoutes({ prisma }: ProjectRoutesDeps) {
     const project = await prisma.project.findUnique({
       where: { id: projectId },
       include: {
-        creatives: {
-          include: {
-            versions: true
-          }
-        }
+        creatives: true
       }
     });
     
@@ -175,7 +175,18 @@ export function createProjectRoutes({ prisma }: ProjectRoutesDeps) {
       return c.json({ error: "forbidden" }, 403);
     }
     
-    return c.json({ project });
+    // Transform to frontend format (use 'title' instead of 'name')
+    return c.json({
+      project: {
+        id: project.id,
+        title: project.name,
+        status: project.status,
+        imageUrl: project.imageUrl ?? "https://placehold.co/600x400/1a1a2e/ffffff?text=No+Preview",
+        updatedAt: formatRelativeTime(project.updatedAt),
+        createdAt: project.createdAt.toISOString(),
+        creatives: project.creatives
+      }
+    });
   });
 
   // Get briefs for a project
@@ -217,6 +228,95 @@ export function createProjectRoutes({ prisma }: ProjectRoutesDeps) {
         data: { name: input.name, userId: user.id }
       });
       return c.json({ project });
+    }
+  );
+
+  // Update project (also creates/updates Creative record when creativeUrl is provided)
+  routes.patch(
+    "/:projectId",
+    zValidator("json", z.object({
+      name: z.string().min(1).optional(),
+      status: z.enum(["draft", "generating", "ready", "published"]).optional(),
+      imageUrl: z.string().optional(),
+      creativeUrl: z.string().optional() // URL for the creative (preview URL from ADCP)
+    })),
+    async (c) => {
+      const user = c.get("user") as SessionUser | null;
+      if (!user) return c.json({ error: "unauthorized" }, 401);
+      
+      const { projectId } = c.req.param();
+      const input = c.req.valid("json");
+      
+      // Check ownership before updating (include creatives with publishRecords for imageUrl sync)
+      const project = await prisma.project.findUnique({
+        where: { id: projectId },
+        include: {
+          creatives: {
+            include: {
+              publishRecords: true
+            }
+          }
+        }
+      });
+      
+      if (!project) {
+        return c.json({ error: "project not found" }, 404);
+      }
+      
+      if (project.userId !== user.id) {
+        return c.json({ error: "forbidden" }, 403);
+      }
+      
+      const updatedProject = await prisma.project.update({
+        where: { id: projectId },
+        data: {
+          ...(input.name && { name: input.name }),
+          ...(input.status && { status: input.status }),
+          ...(input.imageUrl && { imageUrl: input.imageUrl })
+        }
+      });
+
+      // If imageUrl is updated, also update associated PublishRecords
+      if (input.imageUrl && project.creatives && project.creatives.length > 0) {
+        const creativeIds = project.creatives.map(c => c.id);
+        await prisma.publishRecord.updateMany({
+          where: { creativeId: { in: creativeIds } },
+          data: { imageUrl: input.imageUrl }
+        });
+      }
+
+      // Create or update Creative record if creativeUrl is provided
+      let creative = null;
+      if (input.creativeUrl) {
+        // Find existing creative for this project or create new one
+        const existingCreative = await prisma.creative.findFirst({
+          where: { projectId }
+        });
+        
+        const creativeId = existingCreative?.id || crypto.randomUUID();
+        creative = await prisma.creative.upsert({
+          where: { id: creativeId },
+          create: {
+            id: creativeId,
+            projectId,
+            url: input.creativeUrl
+          },
+          update: {
+            url: input.creativeUrl
+          }
+        });
+      }
+      
+      return c.json({
+        project: {
+          id: updatedProject.id,
+          title: updatedProject.name,
+          status: updatedProject.status,
+          imageUrl: updatedProject.imageUrl,
+          updatedAt: formatRelativeTime(updatedProject.updatedAt)
+        },
+        creative
+      });
     }
   );
 
@@ -320,15 +420,11 @@ export function createProjectRoutes({ prisma }: ProjectRoutesDeps) {
       const { projectId } = c.req.param();
       const input = c.req.valid("json");
 
-      // Get project with creatives and versions
+      // Get project with creatives
       const project = await prisma.project.findUnique({
         where: { id: projectId },
         include: {
-          creatives: {
-            include: {
-              versions: true
-            }
-          }
+          creatives: true
         }
       });
 
@@ -336,12 +432,11 @@ export function createProjectRoutes({ prisma }: ProjectRoutesDeps) {
         return c.json({ error: "project not found" }, 404);
       }
 
-      // Get the first creative and version (or handle multiple)
+      // Get the first creative
       const creative = project.creatives?.[0];
-      const version = creative?.versions?.[0];
 
-      if (!creative || !version) {
-        return c.json({ error: "no creative or version found for this project" }, 400);
+      if (!creative) {
+        return c.json({ error: "no creative found for this project" }, 400);
       }
 
       // Generate unique slug
@@ -351,7 +446,6 @@ export function createProjectRoutes({ prisma }: ProjectRoutesDeps) {
       const publishRecord = await prisma.publishRecord.create({
         data: {
           creativeId: creative.id,
-          versionId: version.id,
           creatorId: user.id,
           slug,
           title: input.title,

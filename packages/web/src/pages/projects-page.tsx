@@ -4,7 +4,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ProjectFilterBar,
   ProjectGrid,
-  ProjectFab,
   PublishModal,
   type ProjectStatus,
   type RecencyFilter,
@@ -32,7 +31,8 @@ export function ProjectsPage() {
   // Fetch projects from API with search, status, and recency filters
   const { data, isLoading, error } = useQuery({
     queryKey: ["projects", statusFilter, recencyFilter],
-    queryFn: () => api.getProjects(statusFilter, recencyFilter)
+    queryFn: () => api.getProjects(statusFilter, recencyFilter),
+    refetchOnMount: "always"
   });
 
   // Publish mutation
@@ -41,6 +41,7 @@ export function ProjectsPage() {
       api.publishProject(projectId, {
         title: data.title,
         description: data.description,
+        imageUrl: data.imageUrl,
         category: convertCategory(data.category),
         licenseType: data.licenseType,
         tags: data.tags,
@@ -103,7 +104,7 @@ export function ProjectsPage() {
   };
 
   const handleNewProject = () => {
-    navigate({ to: "/projects/new" });
+    navigate({ to: "/creative-studio" });
   };
 
   const handleCardClick = (id: string) => {
@@ -204,13 +205,25 @@ export function ProjectsPage() {
   return (
     <div className="mx-auto w-full max-w-[1280px] px-4 py-8 lg:px-10">
       {/* Page Header */}
-      <div className="mb-6">
-        <h1 className="mb-2 text-3xl font-black leading-tight tracking-[-0.033em] text-foreground md:text-4xl">
-          Projects
-        </h1>
-        <p className="text-base text-muted-foreground">
-          Manage your AI creative projects, campaigns, and assets
-        </p>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h1 className="mb-2 text-3xl font-black leading-tight tracking-[-0.033em] text-foreground md:text-4xl">
+            Projects
+          </h1>
+          <p className="text-base text-muted-foreground">
+            Manage your AI creative projects, campaigns, and assets
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={handleNewProject}
+          className="flex items-center justify-center rounded-lg h-12 px-6 bg-primary text-primary-foreground text-base font-bold hover:bg-primary/90 transition-colors"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          New Project
+        </button>
       </div>
 
       {/* Filter Bar */}
@@ -251,13 +264,11 @@ export function ProjectsPage() {
         />
       )}
 
-      {/* Floating Action Button */}
-      <ProjectFab onClick={handleNewProject} />
-
       {/* Publish Modal */}
       <PublishModal
         isOpen={publishModalOpen}
         projectTitle={publishingProject?.title}
+        projectImageUrl={publishingProject?.imageUrl}
         onClose={handlePublishClose}
         onPublish={handlePublishSubmit}
         onSaveDraft={handleSaveDraft}
